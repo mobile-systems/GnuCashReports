@@ -312,12 +312,8 @@
 	     (let* ((interval-from-date-tp (car date-interval))
 		    (interval-to-date-tp (cadr date-interval))
 
-		    (money-in-accounts '())
-		    (money-in-alist '())
 		    (money-in-collector (gnc:make-commodity-collector))
 
-		    (money-out-accounts '())
-		    (money-out-alist '())
 		    (money-out-collector (gnc:make-commodity-collector))
 
 		    (money-diff-collector (gnc:make-commodity-collector))
@@ -359,9 +355,7 @@
 				     (lambda (s)
 				       (let* ((s-account (xaccSplitGetAccount s))
 					      (s-account-type (xaccAccountGetType s-account)) 
-					      (s-amount (xaccSplitGetAmount s))
-					      (s-value (xaccSplitGetValue s))
-					      (s-commodity (xaccAccountGetCommodity s-account)))
+					      (s-value (xaccSplitGetValue s)))
 					 ;; Check if this is a dangling split
 					 ;; and print a warning
 					 (if (null? s-account)
@@ -379,62 +373,18 @@
 						 (begin  
 						   (set! seen-split-list (cons s seen-split-list))
 						   (if (gnc-numeric-negative-p s-value)
-						       (let ((pair (account-in-alist s-account money-in-alist)))
-					;(gnc:debug "in:" (gnc-commodity-get-printname s-commodity)
-					;	     (gnc-numeric-to-double s-amount)
-					;	     (gnc-commodity-get-printname parent-currency)
-					;	     (gnc-numeric-to-double s-value))
-							 (if (not pair)
-							     (begin
-							       (set! pair (list s-account (gnc:make-commodity-collector)))
-							       (set! money-in-alist (cons pair money-in-alist))
-							       (set! money-in-accounts (cons s-account money-in-accounts))
-					;(gnc:debug money-in-alist)
-							       )
-							     )
-							 (let ((s-account-in-collector (cadr pair))
-							       (s-report-value (to-report-currency parent-currency
-												   (gnc-numeric-neg s-value)
-												   (gnc-transaction-get-date-posted
-												    parent))))
-							   (money-in-collector 'add report-currency s-report-value)
-							   (s-account-in-collector 'add report-currency s-report-value))
-							 )
-						       (let ((pair (account-in-alist s-account money-out-alist)))
-					;(gnc:debug "out:" (gnc-commodity-get-printname s-commodity)
-					;	     (gnc-numeric-to-double s-amount)
-					;	     (gnc-commodity-get-printname parent-currency)
-					;	     (gnc-numeric-to-double s-value))
-							 (if (not pair)
-							     (begin
-							       (set! pair (list s-account (gnc:make-commodity-collector)))
-							       (set! money-out-alist (cons pair money-out-alist))
-							       (set! money-out-accounts (cons s-account money-out-accounts))
-					;(gnc:debug money-out-alist)
-							       )
-							     )
-							 (let ((s-account-out-collector (cadr pair))
-							       (s-report-value (to-report-currency parent-currency
-												   s-value
-												   (gnc-transaction-get-date-posted
-												    parent))))
-							   (money-out-collector 'add report-currency s-report-value)
-							   (s-account-out-collector 'add report-currency s-report-value))
-							 )
-						       )
-						   )
-						 )
-					     )
-					 )
-				       )
-				     (xaccTransGetSplitList parent)
-				     )
-				    )
-				  )
-			      )
-			    )
-			  (xaccAccountGetSplitList current)
-			  )
+						       (let ((s-report-value (to-report-currency parent-currency
+												  (gnc-numeric-neg s-value)
+												  (gnc-transaction-get-date-posted
+												   parent))))
+							 (money-in-collector 'add report-currency s-report-value))
+						       (let ((s-report-value (to-report-currency parent-currency
+												  s-value
+												  (gnc-transaction-get-date-posted
+												   parent))))
+							 (money-out-collector 'add report-currency s-report-value))))))))
+				     (xaccTransGetSplitList parent))))))
+			  (xaccAccountGetSplitList current))
 
 			 (calc-money-in-out-internal rest))))
 
@@ -457,8 +407,6 @@
 	       (money-diff-collector 'minusmerge money-out-collector #f)
 
 	       (set! accounts (sort accounts account-full-name<?))
-	       (set! money-in-accounts (sort money-in-accounts account-full-name<?))
-	       (set! money-out-accounts (sort money-out-accounts account-full-name<?))
 
 	       (let ((in-data (gnc:sum-collector-commodity money-in-collector report-currency exchange-fn))
 		     (out-data (gnc:sum-collector-commodity money-out-collector report-currency exchange-fn))
@@ -514,19 +462,20 @@
 				 (gnc-print-date (car date))))
 		(else (gnc-print-date (car date)))))
 	    dates-list))
-	  ;; (gnc:html-barchart-set-x-axis-label! chart "date")
 	  (gnc:html-barchart-set-y-axis-label! chart (gnc-commodity-get-mnemonic report-currency))
-	  ;; (gnc:html-barchart-set-row-labels-rotated?! chart #t)
-	  ;; (gnc:html-barchart-set-stacked?! chart #f)
-	  ;; (gnc:html-barchart-set-legend-reversed?! chart #f)
-	  (gnc:debug chart-data)
 	  (gnc:html-barchart-set-data! chart chart-data)
 	  (gnc:html-barchart-set-col-labels! chart (list "Money In" "Money Out" "Difference"))
 	  (gnc:html-barchart-set-col-colors! chart (gnc:assign-colors 3))
 	  (gnc:html-document-add-object! doc chart)
 
 	  (if showtable?
-	      (begin
+	      (let ()
+		(define (calc-total money)
+		  (let ((sum-collector (gnc:make-numeric-collector)))
+		    (map (lambda (m)
+			   (sum-collector 'add (gnc:gnc-monetary-amount m)))
+			 money)
+		    (sum-collector 'total #f)))
 		(gnc:html-table-append-column!
 		 table
 		 (append (map
@@ -536,24 +485,15 @@
 		(gnc:html-table-append-column!
 		 table
 		 (append money-in-data
-			 (list (apply + (map (lambda (c)
-					       (gnc-numeric-to-double
-						(gnc:gnc-monetary-amount c)))
-					     money-in-data)))))
+			 (list (calc-total money-in-data))))
 		(gnc:html-table-append-column!
 		 table
 		 (append money-out-data
-			 (list (apply + (map (lambda (c)
-					       (gnc-numeric-to-double
-						(gnc:gnc-monetary-amount c)))
-					     money-out-data)))))
+			 (list (calc-total money-out-data))))
 		(gnc:html-table-append-column!
 		 table
 		 (append money-diff-data
-			 (list (apply + (map (lambda (c)
-					       (gnc-numeric-to-double
-						(gnc:gnc-monetary-amount c)))
-					     money-diff-data)))))
+			 (list (calc-total money-diff-data))))
 		(gnc:html-table-set-col-headers!
 		 table
 		 (list "Date" "Money In" "Money Out" "Difference"))
